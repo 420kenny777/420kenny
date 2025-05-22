@@ -1,0 +1,497 @@
+// Simple localStorage helpers for persistence demo
+const saveUsers = (users) => localStorage.setItem("users", JSON.stringify(users));
+const loadUsers = () => JSON.parse(localStorage.getItem("users") || "[]");
+const saveContent = (content) => localStorage.setItem("content", JSON.stringify(content));
+const loadContent = () => JSON.parse(localStorage.getItem("content") || "[]");
+const saveComments = (comments) => localStorage.setItem("comments", JSON.stringify(comments));
+const loadComments = () => JSON.parse(localStorage.getItem("comments") || "{}");
+
+export default function KennyApp() {
+  // User auth state
+  const [users, setUsers] = useState(loadUsers());
+  const [currentUser, setCurrentUser] = useState(null);
+  const [content, setContent] = useState(loadContent());
+  const [comments, setComments] = useState(loadComments());
+
+  // Auth form state
+  const [authMode, setAuthMode] = useState("login"); // 'login' or 'signup'
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authUsername, setAuthUsername] = useState("");
+
+  // Owner login username/password state (for form)
+  const [ownerUsername, setOwnerUsername] = useState("");
+  const [ownerPassword, setOwnerPassword] = useState("");
+
+  // Upload form state
+  const [newTitle, setNewTitle] = useState("");
+  const [newPreview, setNewPreview] = useState("");
+  const [newYouTubeLink, setNewYouTubeLink] = useState("");
+  const [newVideoFile, setNewVideoFile] = useState(null);
+  const [uploadError, setUploadError] = useState("");
+
+  // Voting state (store counts in content items)
+  // Comments keyed by post id, values are arrays of { userEmail, text }
+  // For demo simplicity, voting just increments counts on posts
+
+  // ========== Authentication Handlers ===========
+
+  const handleOwnerLogin = () => {
+    if (
+      ownerUsername === "420kennymadeit" &&
+      ownerPassword === "420mademe"
+    ) {
+      // Owner logged in
+      setCurrentUser({ username: "420kennymadeit", role: "owner" });
+      setOwnerUsername("");
+      setOwnerPassword("");
+      setAuthEmail("");
+      setAuthPassword("");
+      setAuthUsername("");
+    } else {
+      alert("Incorrect owner username or password");
+    }
+  };
+
+  const handleSignup = () => {
+    if (!authEmail || !authPassword || !authUsername) {
+      alert("Fill all signup fields");
+      return;
+    }
+    if (users.find((u) => u.email === authEmail)) {
+      alert("Email already registered");
+      return;
+    }
+    // Add new user with verified: false
+    const newUser = {
+      username: authUsername,
+      email: authEmail,
+      password: authPassword,
+      verified: false,
+      role: "user",
+    };
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+    saveUsers(updatedUsers);
+    alert("Signup successful! Please verify your email.");
+    setAuthEmail("");
+    setAuthPassword("");
+    setAuthUsername("");
+    setAuthMode("login");
+  };
+
+  const handleLogin = () => {
+    const user = users.find(
+      (u) => u.email === authEmail && u.password === authPassword
+    );
+    if (!user) {
+      alert("Invalid email or password");
+      return;
+    }
+    if (!user.verified) {
+      alert("Please verify your email before logging in");
+      return;
+    }
+    setCurrentUser(user);
+    setAuthEmail("");
+    setAuthPassword("");
+    setAuthUsername("");
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+  };
+
+  const handleVerifyEmail = (email) => {
+    const updatedUsers = users.map((u) =>
+      u.email === email ? { ...u, verified: true } : u
+    );
+    setUsers(updatedUsers);
+    saveUsers(updatedUsers);
+    alert("Email verified! You can now log in.");
+  };
+
+  // ========== Content Upload ===========
+
+  const validateYouTubeLink = (link) => {
+    // Basic validation for youtube embed url
+    return link.startsWith("https://www.youtube.com/embed/");
+  };
+
+  const handleVideoFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 500 * 1024 * 1024) {
+      setUploadError("File exceeds 500MB size limit.");
+      setNewVideoFile(null);
+      return;
+    }
+    setUploadError("");
+    setNewVideoFile(file);
+  };
+
+  const handleAddContent = () => {
+    if (!newTitle || !newPreview) {
+      alert("Please fill in title and preview description.");
+      return;
+    }
+    if (!newYouTubeLink && !newVideoFile) {
+      alert("Please provide a YouTube embed link or upload a video file.");
+      return;
+    }
+    if (newYouTubeLink && !validateYouTubeLink(newYouTubeLink)) {
+      alert("YouTube embed link must start with https://www.youtube.com/embed/");
+      return;
+    }
+
+    let videoSrc = "";
+    let isFile = false;
+
+    if (newYouTubeLink) {
+      videoSrc = newYouTubeLink;
+    } else if (newVideoFile) {
+      videoSrc = URL.createObjectURL(newVideoFile);
+      isFile = true;
+    }
+
+    const newPost = {
+      id: content.length + 1,
+      title: newTitle,
+      preview: newPreview,
+      video: videoSrc,
+      isFile,
+      votes: 0,
+    };
+    const updatedContent = [newPost, ...content];
+    setContent(updatedContent);
+    saveContent(updatedContent);
+
+    // Clear form
+    setNewTitle("");
+    setNewPreview("");
+    setNewYouTubeLink("");
+    setNewVideoFile(null);
+    setUploadError("");
+  };
+
+  // ========== Comments ===========
+
+  const [commentInputs, setCommentInputs] = useState({}); // key: postId, value: text
+
+  const handleCommentChange = (postId, text) => {
+    setCommentInputs((prev) => ({ ...prev, [postId]: text }));
+  };
+
+  const handlePostComment = (postId) => {
+    if (!currentUser) {
+      alert("Please login to comment");
+      return;
+    }
+    if (!currentUser.verified && currentUser.role !== "owner") {
+      alert("Verify your email to comment");
+      return;
+    }
+    const text = commentInputs[postId];
+    if (!text) {
+      alert("Comment cannot be empty");
+      return;
+    }
+    const postComments = comments[postId] || [];
+    const updatedPostComments = [
+      ...postComments,
+      { userEmail: currentUser.email || currentUser.username, text },
+    ];
+    const updatedComments = { ...comments, [postId]: updatedPostComments };
+    setComments(updatedComments);
+    saveComments(updatedComments);
+    setCommentInputs((prev) => ({ ...prev, [postId]: "" }));
+  };
+
+  // ========== Voting ===========
+
+  const handleVote = (postId) => {
+    if (!currentUser) {
+      alert("Please login to vote");
+      return;
+    }
+    if (!currentUser.verified && currentUser.role !== "owner") {
+      alert("Verify your email to vote");
+      return;
+    }
+    const updatedContent = content.map((post) =>
+      post.id === postId ? { ...post, votes: (post.votes || 0) + 1 } : post
+    );
+    setContent(updatedContent);
+    saveContent(updatedContent);
+  };
+
+  // ========== Navigation & Page State ===========
+
+  const [page, setPage] = useState("home");
+
+  // --- Demo homepage content ---
+  const featuredVideo = content[0];
+
+  return (
+    <div className="min-h-screen bg-black text-gold p-4 font-sans max-w-5xl mx-auto">
+      {/* Navbar */}
+      <nav className="flex flex-wrap gap-4 justify-center mb-6 border-b border-gold pb-2">
+        <button
+          className={`px-3 py-1 rounded ${
+            page === "home" ? "bg-gold text-black" : "hover:underline"
+          }`}
+          onClick={() => setPage("home")}
+        >
+          Home
+        </button>
+        <button
+          className={`px-3 py-1 rounded ${
+            page === "blogs" ? "bg-gold text-black" : "hover:underline"
+          }`}
+          onClick={() => setPage("blogs")}
+        >
+          Blogs
+        </button>
+        <button
+          className={`px-3 py-1 rounded ${
+            page === "vlogs" ? "bg-gold text-black" : "hover:underline"
+          }`}
+          onClick={() => setPage("vlogs")}
+        >
+          Vlogs (Paywall)
+        </button>
+        <button
+          className={`px-3 py-1 rounded ${
+            page === "about" ? "bg-gold text-black" : "hover:underline"
+          }`}
+          onClick={() => setPage("about")}
+        >
+          About Me
+        </button>
+        <button
+          className={`px-3 py-1 rounded ${
+            page === "contact" ? "bg-gold text-black" : "hover:underline"
+          }`}
+          onClick={() => setPage("contact")}
+        >
+          Contact
+        </button>
+        <button
+          className={`px-3 py-1 rounded ${
+            page === "donations" ? "bg-gold text-black" : "hover:underline"
+          }`}
+          onClick={() => setPage("donations")}
+        >
+          Donations
+        </button>
+        <button
+          className={`px-3 py-1 rounded ${
+            page === "gallery" ? "bg-gold text-black" : "hover:underline"
+          }`}
+          onClick={() => setPage("gallery")}
+        >
+          Gallery
+        </button>
+        <button
+          className={`px-3 py-1 rounded ${
+            page === "products" ? "bg-gold text-black" : "hover:underline"
+          }`}
+          onClick={() => setPage("products")}
+        >
+          Products
+        </button>
+
+        {/* Auth Buttons */}
+        {!currentUser && (
+          <>
+            <button
+              className={`px-3 py-1 rounded ${
+                authMode === "login" ? "bg-gold text-black" : "hover:underline"
+              }`}
+              onClick={() => setAuthMode("login")}
+            >
+              Login
+            </button>
+            <button
+              className={`px-3 py-1 rounded ${
+                authMode === "signup" ? "bg-gold text-black" : "hover:underline"
+              }`}
+              onClick={() => setAuthMode("signup")}
+            >
+              Signup
+            </button>
+          </>
+        )}
+        {currentUser && (
+          <button
+            className="px-3 py-1 rounded bg-red-700 hover:bg-red-600"
+            onClick={handleLogout}
+          >
+            Logout ({currentUser.username || currentUser.email})
+          </button>
+        )}
+      </nav>
+
+      {/* Auth Forms */}
+      {!currentUser && authMode === "login" && (
+        <div className="max-w-md mx-auto p-6 bg-gray-900 rounded-xl space-y-4">
+          <h2 className="text-2xl font-bold text-center">Login</h2>
+
+          {/* Owner login */}
+          <div>
+            <h3 className="font-semibold mb-2">Owner Login</h3>
+            <input
+              type="text"
+              placeholder="Owner Username"
+              className="w-full p-2 mb-2 rounded bg-gray-800 text-white"
+              value={ownerUsername}
+              onChange={(e) => setOwnerUsername(e.target.value)}
+            />
+            <input
+              type="password"
+              placeholder="Owner Password"
+              className="w-full p-2 rounded bg-gray-800 text-white"
+              value={ownerPassword}
+              onChange={(e) => setOwnerPassword(e.target.value)}
+            />
+            <button
+              className="mt-2 w-full bg-gold text-black p-2 rounded font-semibold"
+              onClick={handleOwnerLogin}
+            >
+              Owner Login
+            </button>
+          </div>
+
+          <hr className="my-4 border-gold" />
+
+          {/* User login */}
+          <div>
+            <h3 className="font-semibold mb-2">User Login</h3>
+            <input
+              type="email"
+              placeholder="Email"
+              className="w-full p-2 mb-2 rounded bg-gray-800 text-white"
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              className="w-full p-2 rounded bg-gray-800 text-white"
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+            />
+            <button
+              className="mt-2 w-full bg-gold text-black p-2 rounded font-semibold"
+              onClick={handleLogin}
+            >
+              User Login
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!currentUser && authMode === "signup" && (
+        <div className="max-w-md mx-auto p-6 bg-gray-900 rounded-xl space-y-4">
+          <h2 className="text-2xl font-bold text-center">Signup</h2>
+          <input
+            type="text"
+            placeholder="Username"
+            className="w-full p-2 rounded bg-gray-800 text-white"
+            value={authUsername}
+            onChange={(e) => setAuthUsername(e.target.value)}
+          />
+          <input
+            type="email"
+            placeholder="Email"
+            className="w-full p-2 rounded bg-gray-800 text-white"
+            value={authEmail}
+            onChange={(e) => setAuthEmail(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            className="w-full p-2 rounded bg-gray-800 text-white"
+            value={authPassword}
+            onChange={(e) => setAuthPassword(e.target.value)}
+          />
+          <button
+            className="mt-2 w-full bg-gold text-black p-2 rounded font-semibold"
+            onClick={handleSignup}
+          >
+            Signup
+          </button>
+
+          <p className="mt-4 text-center">
+            Already have an account?{" "}
+            <button
+              className="underline"
+              onClick={() => setAuthMode("login")}
+            >
+              Login here
+            </button>
+          </p>
+        </div>
+      )}
+
+      {/* Verified email prompt after signup */}
+      {!currentUser && authMode === "login" && (
+        <div className="max-w-md mx-auto mt-6 p-4 bg-gray-900 rounded-xl text-center">
+          <h3 className="mb-2 font-semibold">Simulated Email Verification</h3>
+          <p>
+            To verify your email, enter it below and click Verify.
+          </p>
+          <input
+            type="email"
+            placeholder="Your email"
+            className="w-full p-2 rounded bg-gray-800 text-white mt-2 mb-4"
+            value={authEmail}
+            onChange={(e) => setAuthEmail(e.target.value)}
+          />
+          <button
+            className="bg-gold text-black px-4 py-2 rounded font-semibold"
+            onClick={() => {
+              if (!authEmail) {
+                alert("Enter your email to verify");
+                return;
+              }
+              const user = users.find((u) => u.email === authEmail);
+              if (!user) {
+                alert("Email not found");
+                return;
+              }
+              if (user.verified) {
+                alert("Email already verified");
+                return;
+              }
+              handleVerifyEmail(authEmail);
+            }}
+          >
+            Verify Email
+          </button>
+        </div>
+      )}
+
+      {/* Main Pages */}
+
+      {currentUser && page === "home" && (
+        <main>
+          <h1 className="text-4xl font-bold text-center mb-8">
+            Welcome to 420 Kenny
+          </h1>
+          {featuredVideo ? (
+            <div className="max-w-4xl mx-auto p-4 bg-gray-900 rounded-xl">
+              <h2 className="text-2xl font-semibold mb-2">
+                Featured: {featuredVideo.title}
+              </h2>
+              {featuredVideo.isFile ? (
+                <video
+                  src={featuredVideo.video}
+                  controls
+                  className="w-full rounded-lg"
+                />
+              ) : (
+                <iframe
+                  src={featuredVideo.video}
+                  title={featuredVideo.title}
+                  className="w-full aspect-video rounded-lg"
